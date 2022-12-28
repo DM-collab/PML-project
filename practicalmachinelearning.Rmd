@@ -1,0 +1,324 @@
+---
+title: "practical machine learning final project"
+output: html_document
+date: '2022-12-22'
+---
+
+## Overview
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+The data consists of a Training data and a Test data (to be used to validate the selected model).
+
+The goal of your project is to predict the manner in which they did the exercise. This is the “classe” variable in the training set. You may use any of the other variables to predict with.
+
+Importing the necessary libraries:
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(corrplot)
+library(gbm)
+library(RColorBrewer)
+library(rattle)
+
+```
+
+## Getting the data
+
+We import the data from the csv provided in the links:
+There are 2 datasets:
+1.-pml-Training
+2.-pml-testing
+```{r }
+train_in <- read.csv('./pml-training.csv', header=T)
+RealCases <- read.csv('./pml-testing.csv', header=T)
+dim(train_in)
+dim(RealCases)
+```
+
+## Cleaning the input data
+
+After importing the csv we note there are some incomplete logs, to fix this we replace any NA with a cero.
+
+```{r }
+trainData<- train_in[, colSums(is.na(train_in)) == 0]
+RData <- RealCases[, colSums(is.na(RealCases)) == 0]
+
+```
+Exploring the dataset, we note that there are columns with timestamps and names associated with the user.
+This data is'nt needed and it generates noise, we remove it from our datasets.
+
+```{r }
+trainData <- trainData[, -c(1:7)]
+RData <- RData[, -c(1:7)]
+
+```
+
+## Preparing the datasets for prediction
+
+
+```{r }
+set.seed(9503) 
+inTrain <- createDataPartition(trainData$classe, p = 0.7, list = FALSE)
+trainData <- trainData[inTrain, ]
+testData <- trainData[-inTrain, ]
+
+```
+
+
+## Remove near-zero-variance variables.
+
+
+```{r }
+NearZeroV <- nearZeroVar(trainData)
+trainData <- trainData[, -NearZeroV]
+testData  <- testData[, -NearZeroV]
+
+dim(trainData)
+dim(testData)
+dim(RData)
+```
+
+After processing the data there are 49 variables in every dataset.
+
+
+
+##Exploring the correlation between variables:
+The use a correlation plot ordered by the line that best accounts for the shape of the point swarm. It represents the maximum variance direction in the data. 
+
+
+```{r }
+cor_mat <- cor(trainData[, -49])
+corrplot(cor_mat, order = "FPC", method = "circle", type = "lower",  tl.cex = 0.5, tl.col = rgb(0, 0, 0))
+
+
+```
+
+From the corrplot, we can see various variables that have strong correlations.
+
+
+#Model building
+
+
+1.Classification trees/ regression trees ( the data seems continuous)
+2.Random forests
+3.Generalized Boosted Model
+4.Support Vector Machines
+5.Prediction with classification trees
+
+
+
+#1(a).- Classification Trees
+```{r }
+set.seed(9503)
+
+decisionTreeMod1 <- rpart(classe ~ ., data=trainData, method="class")
+fancyRpartPlot(decisionTreeMod1)
+
+```
+
+
+```{r}
+predictTreeMod1 <- predict(decisionTreeMod1, testData, type = "class")
+
+cmtree1 <- confusionMatrix(predictTreeMod1, as.factor(testData$classe))
+
+cmtree1
+```
+
+plot matrix results
+
+```{r}
+plot(cmtree1$table, col = cmtree1$byClass, main = paste("Decision Tree - Accuracy =", round(cmtree1$overall['Accuracy'], 4)))
+```
+
+We see that the accuracy rate of the model is low:
+
+0.6543 and therefore the out-of-sample-error is about 0.3457 which is considerable.
+
+##1(b).- Regression trees ( the data seems continuous)
+````{r}
+set.seed(9503)
+decisionTreeMod2 <- train(classe~., data=trainData, method="rpart")
+fancyRpartPlot(decisionTreeMod2$finalModel)
+```
+
+ 
+```{r}
+predictTreeMod2 <- predict(decisionTreeMod2, testData)
+
+cmtree2 <- confusionMatrix(predictTreeMod2, as.factor(testData$classe))
+
+cmtree2
+
+```
+Plot matrix results
+````{r}
+
+plot(cmtree2$table, col = cmtree2$byClass, main = paste("Decision Tree - Accuracy =", round(cmtree2$overall['Accuracy'],4)))
+
+````
+
+We see that the accuracy rate of the model is low: 
+
+0.489 and therefore the out-of-sample-error is about 0.511 which is considerable.
+
+#Prediction with Random Forest
+
+1.- Bootstrap Samples
+2.- At each split, bootstrap samples
+3.- Grow multiple trees and vote
+
+Pros:
+
+1.-Accuracy
+
+Cons:
+1.- Speed
+2.- Interpretability
+3.- Overfitting
+
+We first determine the model
+
+
+````{r}
+control <- trainControl(method="cv", number=3, verboseIter=FALSE)
+mod_RF <- train(classe ~ ., data=trainData, method="rf", trControl=control)
+mod_RF$finalModel
+````
+
+
+
+````{r}
+predictRF <- predict(mod_RF, newdata=testData)
+cm_RF <- confusionMatrix(predictRF, as.factor(testData$classe))
+cm_RF
+
+
+````
+
+
+
+The accuracy rate using the random forest is perfect, this is due to the overfitting.
+
+
+Plot matrix results
+````{r}
+plot(mod_RF)
+
+plot(cm_RF$table, col = cm_RF$byClass, main = paste("Random Forest Confusion Matrix: Accuracy =", round(cm_RF$overall['Accuracy'], 4)))
+````
+
+
+
+##Prediction with Generalized Boosted Regression Models
+
+
+Boosting can be used with any subset of classifiers
+
+one large sublass is gradient boosting
+
+r has multiple boosting libraries. Differences include the choice of basic classification functions and combinations rules
+
+- gbm boosting with trees
+- mboost model based boosting
+- ada statistical boosting based on additive logistic regression
+- gamBoost for bosting generalized additive models
+  
+
+
+
+
+````{r}
+set.seed(9503)
+
+mod_GBM  <- train(classe ~ ., data=trainData, method = "gbm",  trControl = control, tuneLength = 5, verbose = FALSE)
+mod_GBM$finalModel
+
+print(mod_GBM)
+````
+
+
+````{r}
+predictGBM <- predict(mod_GBM, newdata=testData)
+cm_GBM <- confusionMatrix(predictGBM, as.factor(testData$classe))
+cm_GBM
+````
+Plot matrix results
+````{r}
+plot(mod_GBM)
+
+plot(cm_GBM$table, col = cm_GBM$byClass, main = paste("Generalized Boosted Model Confusion Matrix: Accuracy =", round(cm_GBM$overall['Accuracy'], 4)))
+````
+We see that the accuracy rate of the model is close to 1: 
+
+0.9937 and therefore the out-of-sample-error is about 0.0063 
+
+##Support Vector Machine
+
+````{r}
+
+set.seed(9503)
+
+
+mod_svm <- train(classe~., data=trainData, method="svmLinear", trControl = control, tuneLength = 5, verbose = F)
+mod_svm$finalModel
+
+print(mod_svm)
+````
+
+
+
+````{r}
+pred_svm <- predict(mod_svm, testData)
+
+cm_svm <- confusionMatrix(pred_svm, factor(testData$classe))
+
+cm_svm
+````
+We see that the accuracy rate of the model is low: 
+
+0.7434 and therefore the out-of-sample-error is about 0.2566 which is considerable.
+````{r}
+
+
+plot(cm_svm$table, col = cm_svm$byClass, main = paste("Generalized Boosted Model Confusion Matrix: Accuracy =", round(cm_svm$overall['Accuracy'], 4)))
+````
+
+##Prediction of the real data using the best models:
+
+From the experiments run, we can conclude that the 2 models, Random Forest and Generalized Boosted Model have the best accuracy, this may well be due to over fitting, and more testing could be done in order to bring at least one model to the 90% accuracy for improved usages in real cases.
+
+
+Prediction using Random Forest:
+````{r}
+Results1 <- predict(mod_RF, newdata=RData)
+
+
+Results1
+````
+
+
+Prediction using Generalized Boosted Model:
+````{r}
+Results2 <- predict(mod_GBM, newdata=RData)
+
+
+Results2
+````
+
+
+
+
+
+
+
+
+
+
+
+
